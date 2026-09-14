@@ -3,8 +3,10 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.capture.TransactionCapturePipeline
+import com.example.capture.parsing.classifier.AdaptiveSpamLearner
 import com.example.capture.parsing.classifier.SpamClassifier
 import com.example.capture.parsing.extractors.AmountExtractor
+import com.example.capture.parsing.extractors.DebitCreditClassifier
 import com.example.capture.parsing.extractors.MerchantExtractor
 import com.example.capture.parsing.extractors.ReferenceExtractor
 import com.example.data.room.AppDatabase
@@ -28,11 +30,11 @@ class ExampleRobolectricTest {
   fun testAppNameResource() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
-    assertEquals("Expense Ledger", appName)
+    assertEquals("Money Flow", appName)
   }
 
   @Test
-  fun testSpamClassifierFiltersOtp() {
+  fun testSpamClassifierFiltersOtpAndPromotions() {
     val otpSms = "Your SBI OTP for login is 928104. Do not share with anyone. Valid for 10 minutes."
     assertTrue(SpamClassifier.isSpamOrIgnored(otpSms).first)
 
@@ -48,6 +50,15 @@ class ExampleRobolectricTest {
     val billDueSpam = "Reminder: Your credit card bill of Rs 4,500 is due on 20-Sep-26. Pay now to avoid late fee."
     assertTrue(SpamClassifier.isSpamOrIgnored(billDueSpam).first)
 
+    // Recharge and telecom promotional messages
+    val rechargePromo = "Special recharge offer! Recharge with Rs 299 and get unlimited 5G data for 28 days. Click to recharge."
+    assertTrue(SpamClassifier.isSpamOrIgnored(rechargePromo).first)
+
+    // Food discount promo
+    val foodPromo = "Hungry? Flat Rs 150 off on your next order above Rs 399 with code YUMMY150. Order now on Domino's!"
+    assertTrue(SpamClassifier.isSpamOrIgnored(foodPromo).first)
+
+    // Real transactions should NOT be flagged as spam
     val realTxSms = "Dear Customer, A/c XX4082 debited for Rs. 320.00 on 14-09-26 to VPA swiggy@icici via UPI Ref 425691028371"
     assertFalse(SpamClassifier.isSpamOrIgnored(realTxSms).first)
 
@@ -56,10 +67,40 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun testAdaptiveSpamLearner() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    AdaptiveSpamLearner.resetModel(context)
+
+    val customPromo = "Special weekend getaway with MysticResorts for Rs 1299 today"
+    // Initially not filtered by static rules
+    val (initialSpam, _) = SpamClassifier.isSpamOrIgnored(customPromo, "TRAVELAPP")
+    assertFalse(initialSpam)
+
+    // Now simulate user clicking "Ignore / Spam"
+    AdaptiveSpamLearner.recordSpam(context, customPromo, "TRAVELAPP")
+    AdaptiveSpamLearner.recordSpam(context, customPromo, "TRAVELAPP")
+
+    val (isSpam, reason) = SpamClassifier.isSpamOrIgnored(customPromo, "TRAVELAPP", context)
+    assertTrue("Learner should flag repeated spam patterns", isSpam)
+    assertTrue(reason?.contains("Adaptive") == true)
+  }
+
+  @Test
+  fun testFinancialGatekeeper() {
+    // Promotional message without account mask or reference ID
+    val fakePromo = "Get delicious burger for Rs 199 only today at Burger King."
+    assertFalse(DebitCreditClassifier.hasFinancialProof(fakePromo, "BURGER"))
+
+    // Real banking SMS with account mask and UPI Ref
+    val realBankSms = "Dear Customer, A/c XX4082 debited for Rs. 320.00 on 14-09-26 to VPA swiggy@icici via UPI Ref 425691028371"
+    assertTrue(DebitCreditClassifier.hasFinancialProof(realBankSms, "HDFCBK"))
+  }
+
+  @Test
   fun testMoneyReceivedCapture() = runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val db = AppDatabase.getDatabase(context)
-    val pipeline = TransactionCapturePipeline(db)
+    val pipeline = TransactionCapturePipeline(db, context)
 
     val rawNotification = "You received ₹2,500.00 from Amit Kumar via PhonePe UPI Ref 837492819283"
     val tx = pipeline.processIncomingMessage(
@@ -100,7 +141,7 @@ class ExampleRobolectricTest {
   fun testEndToEndCapturePipeline() = runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val db = AppDatabase.getDatabase(context)
-    val pipeline = TransactionCapturePipeline(db)
+    val pipeline = TransactionCapturePipeline(db, context)
 
     val rawSms = "Dear Customer, A/c XX4082 debited for Rs. 320.00 on 14-09-26 to VPA swiggy@icici via UPI Ref 425691028371"
     val tx = pipeline.processIncomingMessage(

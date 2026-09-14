@@ -11,9 +11,12 @@ import com.example.model.TransactionStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class TransactionCapturePipeline(private val database: AppDatabase) {
+class TransactionCapturePipeline(
+  private val database: AppDatabase,
+  private val context: android.content.Context? = null
+) {
 
-  private val parserEngine = TransactionParserEngine(database.merchantRuleDao())
+  private val parserEngine = TransactionParserEngine(database.merchantRuleDao(), context)
   private val duplicateMatcher = DuplicateMatcher(database.transactionDao())
 
   suspend fun processIncomingMessage(

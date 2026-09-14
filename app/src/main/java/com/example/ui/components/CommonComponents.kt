@@ -312,9 +312,16 @@ fun ReviewAttentionCard(
           onClick = onIgnore,
           modifier = Modifier.testTag("ignore_review_btn_${transaction.id}")
         ) {
-          Text("Ignore")
+          Text("Ignore / Spam")
         }
       }
+
+      Spacer(modifier = Modifier.height(8.dp))
+      Text(
+        text = "💡 Ignoring teaches the on-device smart filter to drop similar messages automatically.",
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+      )
     }
   }
 }

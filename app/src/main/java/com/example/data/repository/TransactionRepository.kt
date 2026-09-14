@@ -1,6 +1,9 @@
 package com.example.data.repository
 
+import android.content.Context
 import com.example.capture.TransactionCapturePipeline
+import com.example.capture.parsing.classifier.AdaptiveLearnerStats
+import com.example.capture.parsing.classifier.AdaptiveSpamLearner
 import com.example.data.room.AppDatabase
 import com.example.model.AccountEntity
 import com.example.model.AccountType
@@ -14,11 +17,12 @@ import com.example.model.TransactionStatus
 import com.example.model.TransactionType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
-import java.util.Calendar
 
-class TransactionRepository(private val database: AppDatabase) {
+class TransactionRepository(
+  private val database: AppDatabase,
+  private val context: Context? = null
+) {
 
   val activeTransactions: Flow<List<TransactionEntity>> = database.transactionDao().getAllActiveTransactions()
   val reviewQueue: Flow<List<TransactionEntity>> = database.transactionDao().getTransactionsNeedingReview()
@@ -28,7 +32,7 @@ class TransactionRepository(private val database: AppDatabase) {
   val merchantRules: Flow<List<MerchantRuleEntity>> = database.merchantRuleDao().getAllRules()
   val recentDiagnostics: Flow<List<DiagnosticEventEntity>> = database.diagnosticDao().getRecentEvents()
 
-  private val capturePipeline = TransactionCapturePipeline(database)
+  private val capturePipeline = TransactionCapturePipeline(database, context)
 
   suspend fun insertTransaction(transaction: TransactionEntity): Long = withContext(Dispatchers.IO) {
     database.transactionDao().insert(transaction)
@@ -49,11 +53,34 @@ class TransactionRepository(private val database: AppDatabase) {
     if (tx != null) {
       database.transactionDao().updateStatus(id, TransactionStatus.CONFIRMED)
       teachMerchantCategory(tx.merchantName, tx.categoryName, tx.paymentMethod)
+
+      // Train on-device adaptive ML that this is a valid transaction
+      if (context != null) {
+        val snippet = tx.rawSnippet ?: tx.merchantName
+        AdaptiveSpamLearner.recordHam(context, snippet, tx.sourceApp)
+      }
     }
   }
 
   suspend fun ignoreReview(id: Long) = withContext(Dispatchers.IO) {
-    database.transactionDao().updateStatus(id, TransactionStatus.IGNORED)
+    val tx = database.transactionDao().getById(id)
+    if (tx != null) {
+      database.transactionDao().updateStatus(id, TransactionStatus.IGNORED)
+
+      // Train on-device adaptive ML that this text/pattern is unwanted promo/spam
+      if (context != null) {
+        val snippet = tx.rawSnippet ?: tx.merchantName
+        AdaptiveSpamLearner.recordSpam(context, snippet, tx.sourceApp)
+      }
+    }
+  }
+
+  fun getAdaptiveSpamStats(): AdaptiveLearnerStats? {
+    return context?.let { AdaptiveSpamLearner.getLearnedStats(it) }
+  }
+
+  fun resetAdaptiveSpamModel() {
+    context?.let { AdaptiveSpamLearner.resetModel(it) }
   }
 
   suspend fun teachMerchantCategory(
@@ -106,9 +133,5 @@ class TransactionRepository(private val database: AppDatabase) {
 
   suspend fun clearAllTransactions() = withContext(Dispatchers.IO) {
     database.transactionDao().deleteAllTransactions()
-  }
-
-  suspend fun seedSampleTransactionsIfEmpty() = withContext(Dispatchers.IO) {
-    // Production Mode: Zero demo data. Starts clean with real user data only.
   }
 }

@@ -34,7 +34,7 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
     CoroutineScope(Dispatchers.IO).launch {
       try {
         val db = AppDatabase.getDatabase(context)
-        val pipeline = TransactionCapturePipeline(db)
+        val pipeline = TransactionCapturePipeline(db, context)
         pipeline.processIncomingMessage(
           rawText = rawText,
           source = CaptureSource.SMS,

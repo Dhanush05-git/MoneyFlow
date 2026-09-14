@@ -25,7 +25,7 @@ object SmsHistoricalScanner {
     onProgress: (Int, Int) -> Unit = { _, _ -> }
   ): ScanResult = withContext(Dispatchers.IO) {
     val db = AppDatabase.getDatabase(context)
-    val pipeline = TransactionCapturePipeline(db)
+    val pipeline = TransactionCapturePipeline(db, context)
 
     val contentResolver = context.contentResolver
     val uri = Uri.parse("content://sms/inbox")

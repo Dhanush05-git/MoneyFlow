@@ -1,5 +1,6 @@
 package com.example.capture.parsing
 
+import android.content.Context
 import com.example.capture.ParseOutcome
 import com.example.capture.TransactionCandidate
 import com.example.capture.parsing.classifier.SpamClassifier
@@ -13,7 +14,10 @@ import com.example.capture.parsing.normalizer.MerchantNormalizer
 import com.example.data.room.MerchantRuleDao
 import com.example.model.CaptureSource
 
-class TransactionParserEngine(private val merchantRuleDao: MerchantRuleDao? = null) {
+class TransactionParserEngine(
+  private val merchantRuleDao: MerchantRuleDao? = null,
+  private val context: Context? = null
+) {
 
   suspend fun parse(
     rawText: String,
@@ -26,10 +30,10 @@ class TransactionParserEngine(private val merchantRuleDao: MerchantRuleDao? = nu
       return ParseOutcome.Rejected("Empty message", "")
     }
 
-    // Layer 1 & 2: Spam / OTP / Marketing rejection
-    val (isSpam, spamReason) = SpamClassifier.isSpamOrIgnored(clean)
+    // Layer 1 & 2: Static + Adaptive ML Spam / OTP / Promotional rejection
+    val (isSpam, spamReason) = SpamClassifier.isSpamOrIgnored(clean, sourceAppOrSender, context)
     if (isSpam) {
-      return ParseOutcome.Rejected(spamReason ?: "Filtered by spam/privacy engine", clean.take(120))
+      return ParseOutcome.Rejected(spamReason ?: "Filtered by spam engine", clean.take(120))
     }
 
     // Layer 3: Amount extraction
@@ -38,15 +42,27 @@ class TransactionParserEngine(private val merchantRuleDao: MerchantRuleDao? = nu
       return ParseOutcome.Rejected("No valid monetary amount detected", clean.take(120))
     }
 
-    // Layer 4: Debit vs Credit & Payment method
+    // Layer 4: Debit vs Credit action check (Must be an actual transaction verb)
     val (txType, _) = DebitCreditClassifier.classifyType(clean)
+    if (txType == null) {
+      return ParseOutcome.Rejected("No transaction verb (debited/credited/paid) found", clean.take(120))
+    }
+
+    // Layer 5: Financial proof gatekeeper for SMS (Must have account mask, UPI ref, or banking sender)
+    if (source == CaptureSource.SMS) {
+      val hasProof = DebitCreditClassifier.hasFinancialProof(clean, sourceAppOrSender)
+      if (!hasProof) {
+        return ParseOutcome.Rejected("Lacks financial instrument (A/c mask) or banking reference ID", clean.take(120))
+      }
+    }
+
     val paymentMethod = DebitCreditClassifier.detectPaymentMethod(clean)
 
-    // Layer 5: Merchant extraction & normalization
+    // Layer 6: Merchant extraction & normalization
     val rawMerchant = MerchantExtractor.extractMerchant(clean)
     val normalizedMerchant = MerchantNormalizer.normalize(rawMerchant)
 
-    // Layer 6: Merchant category memory lookup
+    // Layer 7: Merchant category memory lookup
     var userTrainedRule = false
     var category = MerchantNormalizer.guessCategory(normalizedMerchant)
     if (merchantRuleDao != null) {
@@ -57,11 +73,11 @@ class TransactionParserEngine(private val merchantRuleDao: MerchantRuleDao? = nu
       }
     }
 
-    // Layer 7: Reference & Account extraction
+    // Layer 8: Reference & Account extraction
     val reference = ReferenceExtractor.extractReference(clean)
     val account = AccountExtractor.extractAccount(clean, sourceAppOrSender)
 
-    // Layer 8: Confidence scoring
+    // Layer 9: Confidence scoring
     val (confidence, reasons) = ConfidenceScorer.scoreConfidence(
       amountPaise = amountPaise,
       type = txType,

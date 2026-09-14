@@ -41,7 +41,7 @@ class ExpenseNotificationListener : NotificationListenerService() {
     serviceScope.launch {
       try {
         val db = AppDatabase.getDatabase(applicationContext)
-        val pipeline = TransactionCapturePipeline(db)
+        val pipeline = TransactionCapturePipeline(db, applicationContext)
         pipeline.processIncomingMessage(
           rawText = fullContent,
           source = CaptureSource.NOTIFICATION,

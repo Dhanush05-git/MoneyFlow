@@ -44,14 +44,15 @@ data class ExpenseUiState(
   val autoApproveThreshold: Int = 95,
   val isScanning: Boolean = false,
   val scanProgress: Pair<Int, Int> = Pair(0, 0),
-  val lastScanResult: ScanResult? = null
+  val lastScanResult: ScanResult? = null,
+  val learnedSpamStats: com.example.capture.parsing.classifier.AdaptiveLearnerStats? = null
 )
 
 class ExpenseViewModel(application: Application) : AndroidViewModel(application) {
 
   private val database = AppDatabase.getDatabase(application)
-  private val repository = TransactionRepository(database)
-  private val parserEngine = TransactionParserEngine(database.merchantRuleDao())
+  private val repository = TransactionRepository(database, application)
+  private val parserEngine = TransactionParserEngine(database.merchantRuleDao(), application)
 
   private val _searchQuery = MutableStateFlow("")
   private val _typeFilter = MutableStateFlow<TransactionType?>(null)
@@ -62,6 +63,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
   private val _isScanning = MutableStateFlow(false)
   private val _scanProgress = MutableStateFlow(Pair(0, 0))
   private val _lastScanResult = MutableStateFlow<ScanResult?>(null)
+  private val _learnedStatsTick = MutableStateFlow(0L)
 
   init {
     // Clean production start: no demo transactions seeded
@@ -82,7 +84,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     _selectedDateMillis,
     _isScanning,
     _scanProgress,
-    _lastScanResult
+    _lastScanResult,
+    _learnedStatsTick
   ) { args: Array<Any?> ->
     @Suppress("UNCHECKED_CAST")
     val txs = args[0] as List<TransactionEntity>
@@ -151,7 +154,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
       autoApproveThreshold = _autoApproveThreshold.value,
       isScanning = isScanning,
       scanProgress = scanProg,
-      lastScanResult = lastScan
+      lastScanResult = lastScan,
+      learnedSpamStats = repository.getAdaptiveSpamStats()
     )
   }.stateIn(
     scope = viewModelScope,
@@ -230,12 +234,21 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
   fun confirmReview(id: Long) {
     viewModelScope.launch {
       repository.confirmReview(id)
+      _learnedStatsTick.value = System.currentTimeMillis()
     }
   }
 
   fun ignoreReview(id: Long) {
     viewModelScope.launch {
       repository.ignoreReview(id)
+      _learnedStatsTick.value = System.currentTimeMillis()
+    }
+  }
+
+  fun resetAdaptiveSpamFilter() {
+    viewModelScope.launch {
+      repository.resetAdaptiveSpamModel()
+      _learnedStatsTick.value = System.currentTimeMillis()
     }
   }
 

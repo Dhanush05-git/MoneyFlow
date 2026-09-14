@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Tune
@@ -36,6 +37,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -178,6 +180,107 @@ fun SettingsScreen(
             steps = 3,
             modifier = Modifier.fillMaxWidth()
           )
+        }
+      }
+    }
+
+    // Adaptive On-Device Spam & Promotion AI Card
+    item {
+      Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Box(
+                modifier = Modifier
+                  .size(36.dp)
+                  .clip(CircleShape)
+                  .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+              ) {
+                Icon(
+                  Icons.Default.Psychology,
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(20.dp)
+                )
+              }
+              Spacer(modifier = Modifier.width(12.dp))
+              Column {
+                Text(
+                  text = "Smart Spam Learner",
+                  style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                  text = "Adapts to what you ignore in review",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+              }
+            }
+
+            Surface(
+              shape = RoundedCornerShape(8.dp),
+              color = Emerald500.copy(alpha = 0.15f)
+            ) {
+              Text(
+                text = "Active",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = Emerald600,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+              )
+            }
+          }
+
+          Spacer(modifier = Modifier.height(12.dp))
+
+          val stats = uiState.learnedSpamStats
+          val spamCount = stats?.totalSpamExamples ?: 0
+          val uniqueTokens = stats?.uniqueSpamTokens ?: 0
+          val topTerms = stats?.topLearnedSpamTerms ?: emptyList()
+
+          Text(
+            text = if (spamCount == 0) {
+              "The on-device model actively suppresses promotional SMS with financial amounts (recharges, discounts, coupons, loans). Tap 'Ignore / Spam' on any unwanted message in Review to teach the filter your personal preferences."
+            } else {
+              "Learned from $spamCount rejected promotions across $uniqueTokens unique spam tokens. New messages matching these patterns are automatically dropped before review."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = 18.sp
+          )
+
+          if (topTerms.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+              text = "Top Learned Filter Words: ${topTerms.joinToString(", ")}",
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+              color = MaterialTheme.colorScheme.primary
+            )
+          }
+
+          if (spamCount > 0) {
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+              onClick = {
+                viewModel.resetAdaptiveSpamFilter()
+                Toast.makeText(context, "Learned spam filter reset", Toast.LENGTH_SHORT).show()
+              },
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("Reset Learned Spam Data")
+            }
+          }
         }
       }
     }
